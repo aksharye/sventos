@@ -640,7 +640,8 @@ const Videocall = (props: { slug: string; JWT: string }) => {
         className="h-full w-full"
         style={inSession ? {} : { display: "none" }}
       >
-        <VideoPlayerContainer ref={containerRef} style={videoContainerStyle}>
+        {/* @ts-expect-error html component */}
+        <video-player-container ref={containerRef} style={videoContainerStyle}>
           {/* Videos container */}
           <div className="absolute inset-0 z-0">
             <div id="videos-container" className="absolute inset-0 overflow-hidden"></div>
@@ -648,7 +649,8 @@ const Videocall = (props: { slug: string; JWT: string }) => {
             {/* Screen shares container */}
             <div id="shares-container" className="absolute inset-0 overflow-hidden"></div>
           </div>
-        </VideoPlayerContainer>
+        {/* @ts-expect-error html component */}
+        </video-player-container>
       </div>
       {!inSession ? (
         <div className="mx-auto flex w-64 flex-col self-center mt-[40vh]">
