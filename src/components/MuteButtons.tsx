@@ -33,18 +33,19 @@ const CameraButton = (props: {
 
   const onCameraClick = async () => {
     const mediaStream = client.current.getMediaStream();
-    if (isVideoMuted) {
-      await mediaStream.startVideo();
-      setIsVideoMuted(false);
-      await renderVideo({
-        action: "Start",
-        userId: client.current.getCurrentUserInfo().userId,
-      });
-    } else {
+    const isVideoStarted = mediaStream.isCapturingVideo();
+    if (isVideoStarted) {
       await mediaStream.stopVideo();
       setIsVideoMuted(true);
       await renderVideo({
         action: "Stop",
+        userId: client.current.getCurrentUserInfo().userId,
+      });
+    } else {
+      await mediaStream.startVideo();
+      setIsVideoMuted(false);
+      await renderVideo({
+        action: "Start",
         userId: client.current.getCurrentUserInfo().userId,
       });
     }

@@ -24,6 +24,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <script src="/draggable.min.js" defer></script>
+      </head>
       <body className={inter.className}>{children}</body>
     </html>
   );

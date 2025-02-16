@@ -1,8 +1,7 @@
 "use client";
 
-import { CSSProperties, useEffect, useRef, useState } from "react";
+import { CSSProperties, useEffect, useRef, useState, useCallback } from "react";
 import ZoomVideo, {
-  type VideoClient,
   VideoQuality,
   type VideoPlayer,
   SharePrivilege,
@@ -11,43 +10,117 @@ import { CameraButton, MicButton } from "./MuteButtons";
 import { PhoneOff, MonitorUp, MicOff } from "lucide-react";
 import { Button } from "./ui/button";
 
-type VideoElement = {
-  wrapper: HTMLElement;
-  video?: VideoPlayer;
-  placeholder?: HTMLElement;
-};
-
-const shareMaps = new Map<number, HTMLCanvasElement>();
-const videoMaps = new Map<number, VideoElement>();
-
 const Videocall = (props: { slug: string; JWT: string }) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const session = props.slug;
   const jwt = props.JWT;
   const [inSession, setInSession] = useState(false);
-  const client = useRef<typeof VideoClient>(ZoomVideo.createClient());
+  const client = useRef(ZoomVideo.createClient());
   const [isVideoMuted, setIsVideoMuted] = useState(true);
   const [isAudioMuted, setIsAudioMuted] = useState(true);
   const [isSharing, setIsSharing] = useState(false);
-  const [videoElements, setVideoElements] = useState<Map<number, VideoElement>>(new Map());
+  const [userName] = useState(`User-${Math.floor(Math.random() * 1000)}`);
+  const [participants, setParticipants] = useState<Set<number>>(new Set());
+  const [activeShares, setActiveShares] = useState<Set<number>>(new Set());
 
-  useEffect(() => {
-    client.current = ZoomVideo.createClient();
-    return () => {
-      if (client.current) {
-        client.current.leave().catch(e => console.error("leave error", e));
+  const renderVideo = async (event: { action: "Start" | "Stop"; userId: number; }) => {
+    try {
+      console.log(event.userId);
+      const mediaStream = client.current.getMediaStream();
+      const currentUserId = client.current.getCurrentUserInfo().userId;
+      const isLocalUser = currentUserId === event.userId;
+
+      // Get or create video container
+      let videoContainer = containerRef.current.querySelector(
+        `#video-${event.userId}`
+      ) as HTMLDivElement;
+
+      if (!videoContainer && event.action === "Start") {
+        videoContainer = document.createElement('div');
+        videoContainer.id = `video-${event.userId}`;
+        Object.assign(videoContainer.style, videoWrapperStyle);
+        const videosContainer = containerRef.current.querySelector('#videos-container');
+        if (videosContainer) {
+          videosContainer.appendChild(videoContainer);
+        }
       }
-    };
-  }, []);
+
+      if (!videoContainer &&event.action === "Stop") {
+        videoContainer = document.createElement('div');
+        videoContainer.id = `video-${event.userId}`;
+        Object.assign(videoContainer.style, videoWrapperStyle);
+        const videosContainer = containerRef.current.querySelector('#videos-container');
+        videoContainer.style.backgroundColor = 'rgba(255,255,255,0)';
+        if (videosContainer) {
+          videosContainer.appendChild(videoContainer);
+        }
+      }
+
+      if (!videoContainer) return;
+
+      // Clean up existing video
+      const existingVideo = videoContainer.querySelector('video');
+      if (existingVideo && event.action === "Stop") existingVideo.remove();
+
+      if (event.action === "Start") {
+        const userVideo = await mediaStream.attachVideo(
+          event.userId,
+          VideoQuality.Video_360P
+        ) as VideoPlayer;
+        
+        Object.assign(videoContainer.style, {
+          width: '105%',
+          height: '100%',
+          objectFit: 'cover'
+        });
+
+        videoContainer.innerHTML = '';
+        videoContainer.style.backgroundColor = 'rgba(255,255,255,0)';
+        videoContainer.appendChild(userVideo as VideoPlayer);
+        if (isLocalUser) setIsVideoMuted(true);
+        return;
+      } else {
+        videoContainer.style.backgroundColor = 'rgba(20,20,20,1.0)';
+      }
+
+
+      // Add name label
+      const nameLabel = document.createElement('div');
+      Object.assign(nameLabel.style, {
+        position: 'absolute',
+        bottom: '10px',
+        left: '10px',
+        background: 'rgba(0,0,0,0.5)',
+        color: 'white',
+        padding: '5px',
+        borderRadius: '4px',
+        fontSize: '12px'
+      });
+      nameLabel.textContent = isLocalUser ? `${userName} (You)` : `Participant ${event.userId}`;
+      
+      videoContainer.appendChild(nameLabel);
+      
+      if (isLocalUser) setIsVideoMuted(false);
+    } catch (error) {
+      console.error('Error rendering video:', error);
+      if (event.userId === client.current.getCurrentUserInfo().userId) {
+        setIsVideoMuted(true);
+      }
+    }
+  };
 
   const joinSession = async () => {
     await client.current.init("en-US", "Global", { patchJsMedia: true });
-    client.current.on(
-      "peer-video-state-change",
-      (payload) => void renderVideo(payload)
-    );
+    client.current.on("peer-video-state-change", renderVideo);
     client.current.on("active-share-change", (payload) => {
       console.log("active-share-change", payload);
       handleShareChange(payload);
+    });
+    client.current.on("user-added", (payload) => {
+      console.log("user-added", payload);
+    });
+    client.current.on("user-removed", (payload) => {
+      console.log("user-removed", payload);
     });
     await client.current.join(session, jwt, userName).catch((e) => {
       console.log(e);
@@ -58,105 +131,149 @@ const Videocall = (props: { slug: string; JWT: string }) => {
     setIsAudioMuted(mediaStream.isAudioMuted());
     await mediaStream.startVideo();
     setIsVideoMuted(!mediaStream.isCapturingVideo());
+    client.current.getAllUser().forEach(async (user) => {
+      console.log(user);
+      if (user.bVideoOn) {
+        await renderVideo({
+          action: "Start",
+          userId: user.userId,
+        });
+      } else {
+        await renderVideo({
+          action: "Stop",
+          userId: user.userId,
+        });
+      }
+    });
+
     await renderVideo({
       action: "Start",
       userId: client.current.getCurrentUserInfo().userId,
     });
   };
 
-  const renderVideo = async (event: {
-    action: "Start" | "Stop";
-    userId: number;
-  }) => {
-    if (!client.current) return;
-    const mediaStream = client.current.getMediaStream();
-
-    // Remove existing video element if any
-    const existingElement = videoMaps.get(event.userId);
-    if (existingElement?.wrapper) {
-      existingElement.wrapper.remove();
-      videoMaps.delete(event.userId);
-    }
-
-    if (event.action === "Stop") {
-      const placeholder = document.createElement('div');
-      placeholder.className = "video-placeholder";
-      placeholder.innerHTML = `<span>${userName}</span>`;
-      
-      const wrapper = document.createElement('div');
-      wrapper.appendChild(placeholder);
-      
-      videoMaps.set(event.userId, { wrapper, placeholder });
-    } else {
-      const userVideo = await mediaStream.attachVideo(
-        event.userId,
-        VideoQuality.Video_360P
-      ) as VideoPlayer;
-      
-      const wrapper = document.createElement('div');
-      wrapper.className = "video-wrapper";
-      wrapper.appendChild(userVideo as VideoPlayer);
-      
-      if (isAudioMuted) {
-        const muteIcon = document.createElement('div');
-        muteIcon.className = "mute-icon";
-        muteIcon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-mic-off"><line x1="2" y1="2" x2="22" y2="22"/><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2"/><path d="M5 12v-2a7 7 0 0 1 .11-1.23"/><path d="M12 19v3"/><path d="M8 22h8"/><path d="M12 1a3 3 0 0 1 3 3v6m0 3a3 3 0 0 1-5.94.6"/></svg>';
-        wrapper.appendChild(muteIcon);
-      }
-
-      videoMaps.set(event.userId, { wrapper, video: userVideo });
-    }
+  async function handleShareChange(payload: { state: 'Active' | 'Inactive', userId: number }) {
+    if (!client.current || !containerRef.current) return;
     
-    renderVideoElements();
-  };
+    try {
+      const mediaStream = client.current.getMediaStream();
+      const sharesContainer = containerRef.current.querySelector('#shares-container');
+      if (!sharesContainer) return;
 
-  const renderVideoElements = () => {
-    const container = document.getElementById('video-container');
-    if (!container) return;
+      if (payload.state === 'Active') {
+        setActiveShares(prev => new Set([...prev, payload.userId]));
+        
+        // Create share container
+        const shareContainer = document.createElement('div');
+        shareContainer.id = `share-${payload.userId}`;
+        Object.assign(shareContainer.style, {
+          ...videoWrapperStyle,
+          width: '640px',  // Larger size for shares
+          height: '480px'
+        });
 
-    container.innerHTML = ''
+        const videoElement = document.createElement('canvas');
+        Object.assign(videoElement.style, {
+          width: '100%',
+          height: '100%',
+          objectFit: 'contain'
+        });
 
-    // Add all video elements
-    videoMaps.forEach((element) => {
-      container.appendChild(element.wrapper);
-    });
+        // Add name label
+        const nameLabel = document.createElement('div');
+        Object.assign(nameLabel.style, {
+          position: 'absolute',
+          top: '10px',
+          left: '10px',
+          background: 'rgba(0,0,0,0.5)',
+          color: 'white',
+          padding: '5px',
+          borderRadius: '4px',
+          fontSize: '12px'
+        });
+        const isLocal = payload.userId === client.current.getCurrentUserInfo().userId;
+        nameLabel.textContent = isLocal ? `${userName}'s Screen` : `Participant ${payload.userId}'s Screen`;
+
+        shareContainer.appendChild(videoElement);
+        shareContainer.appendChild(nameLabel);
+        sharesContainer.appendChild(shareContainer);
+        
+        await mediaStream.startShareView(videoElement, payload.userId);
+      } else if (payload.state === 'Inactive') {
+        setActiveShares(prev => {
+          const next = new Set(prev);
+          next.delete(payload.userId);
+          return next;
+        });
+
+        const shareContainer = sharesContainer.querySelector(`#share-${payload.userId}`);
+        if (shareContainer) {
+          shareContainer.remove();
+        }
+        await mediaStream.stopShareView();
+      }
+    } catch (error) {
+      console.error('Error handling share change:', error);
+    }
   };
 
   const toggleShare = async () => {
-    if (!client.current) return;
-    const mediaStream = client.current.getMediaStream();
-    if (isSharing) {
-      await mediaStream.stopShareScreen();
-      const videoElement = shareMaps.get(client.current.getCurrentUserInfo().userId);
-      if (videoElement) {
-        videoElement.remove();
-        shareMaps.delete(client.current.getCurrentUserInfo().userId);
-      }
-      setIsSharing(false);
-    } else {
-      const videoElement = document.createElement('canvas');
-      document.getElementById('video-container')?.appendChild(videoElement);
-      await mediaStream.startShareScreen(videoElement);
-      shareMaps.set(client.current.getCurrentUserInfo().userId, videoElement);
-      setIsSharing(true);
-    }
-  };
+    if (!client.current || !containerRef.current) return;
+    
+    try {
+      const mediaStream = client.current.getMediaStream();
+      const sharesContainer = containerRef.current.querySelector('#shares-container');
+      if (!sharesContainer) return;
+      
+      const userId = client.current.getCurrentUserInfo().userId;
+      
+      if (isSharing) {
+        await mediaStream.stopShareScreen();
+        const shareContainer = sharesContainer.querySelector(`#share-${userId}`);
+        if (shareContainer) {
+          shareContainer.remove();
+        }
+        setIsSharing(false);
+      } else {
+        const shareContainer = document.createElement('div');
+        shareContainer.id = `share-${userId}`;
+        Object.assign(shareContainer.style, {
+          ...videoWrapperStyle,
+          width: '640px',
+          height: '480px'
+        });
 
-  const handleShareChange = async (payload: { state: 'Active' | 'Inactive', userId: number }) => {
-    if (!client.current) return;
-    const mediaStream = client.current.getMediaStream();
-    if (payload.state === 'Active') {
-      const videoElement = document.createElement('canvas');
-      document.getElementById('video-container')?.appendChild(videoElement);
-      await mediaStream.startShareView(videoElement, payload.userId);
-      shareMaps.set(payload.userId, videoElement);
-    } else if (payload.state === 'Inactive') {
-      const videoElement = shareMaps.get(payload.userId);
-      if (videoElement) {
-        videoElement.remove();
-        shareMaps.delete(payload.userId);
+        const videoElement = document.createElement('video');
+        Object.assign(videoElement.style, {
+          width: '100%',
+          height: '100%',
+          objectFit: 'contain'
+        });
+
+        // Add name label
+        const nameLabel = document.createElement('div');
+        Object.assign(nameLabel.style, {
+          position: 'absolute',
+          top: '10px',
+          left: '10px',
+          background: 'rgba(0,0,0,0.5)',
+          color: 'white',
+          padding: '5px',
+          borderRadius: '4px',
+          fontSize: '12px'
+        });
+        nameLabel.textContent = `${userName}'s Screen`;
+
+        shareContainer.appendChild(videoElement);
+        shareContainer.appendChild(nameLabel);
+        sharesContainer.appendChild(shareContainer);
+        
+        await mediaStream.startShareScreen(videoElement);
+        setIsSharing(true);
       }
-      await mediaStream.stopShareView();
+    } catch (error) {
+      console.error('Error toggling screen share:', error);
+      setIsSharing(false);
     }
   };
 
@@ -168,6 +285,19 @@ const Videocall = (props: { slug: string; JWT: string }) => {
     window.location.href = "/";
   };
 
+  useEffect(() => {
+    client.current = ZoomVideo.createClient();
+    
+    return () => {
+      
+      if (client.current) {
+        client.current.off("peer-video-state-change", renderVideo);
+        client.current.off("active-share-change", handleShareChange);
+        client.current.leave().catch(e => console.error("leave error", e));
+      }
+    };
+  }, []);
+
   return (
     <div className="flex h-full w-full flex-1 flex-col">
       <h1 className="text-center text-3xl font-bold mb-4 mt-0">
@@ -177,13 +307,24 @@ const Videocall = (props: { slug: string; JWT: string }) => {
         className="flex w-full flex-1 justify-center items-center"
         style={inSession ? {} : { display: "none" }}
       >
-        <div id="video-container" style={videoContainerStyle}>
-          {isVideoMuted && (
-            <div className="video-placeholder">
-              <span>{userName}</span>
-            </div>
-          )}
-        </div>
+        <video-player-container ref={containerRef} style={videoContainerStyle}>
+          {/* Videos container */}
+          <div id="videos-container" style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '10px',
+            justifyContent: 'center',
+            marginBottom: '20px'
+          }}></div>
+          
+          {/* Screen shares container */}
+          <div id="shares-container" style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '20px',
+            justifyContent: 'center'
+          }}></div>
+        </video-player-container>
       </div>
       {!inSession ? (
         <div className="mx-auto flex w-64 flex-col self-center">
@@ -202,61 +343,27 @@ const Videocall = (props: { slug: string; JWT: string }) => {
               renderVideo={renderVideo}
             />
             <MicButton
-              isAudioMuted={isAudioMuted}
               client={client}
+              isAudioMuted={isAudioMuted}
               setIsAudioMuted={setIsAudioMuted}
             />
-            <Button onClick={toggleShare} title={isSharing ? "stop sharing" : "start sharing"}>
-              <MonitorUp className={isSharing ? "text-red-500" : ""} />
+            <Button
+              onClick={toggleShare}
+              variant={isSharing ? "destructive" : "default"}
+              title={isSharing ? "stop share" : "start share"}
+            >
+              <MonitorUp />
             </Button>
-            <Button onClick={leaveSession} title="leave session">
+            <Button
+              onClick={leaveSession}
+              variant="destructive"
+              title="leave session"
+            >
               <PhoneOff />
             </Button>
           </div>
         </div>
       )}
-      <style jsx global>{`
-        .video-wrapper {
-          position: relative;
-          width: 640px;
-          height: 480px;
-          border: 2px solid #ccc;
-          border-radius: 8px;
-          overflow: hidden;
-        }
-        
-        .video-wrapper video {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-        }
-
-        .mute-icon {
-          position: absolute;
-          bottom: 8px;
-          right: 8px;
-          background: rgba(255, 0, 0, 0.7);
-          padding: 4px;
-          border-radius: 50%;
-          color: white;
-        }
-
-        .video-placeholder {
-          width: 640px;
-          height: 480px;
-          background: #f0f0f0;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border: 2px solid #ccc;
-          border-radius: 8px;
-        }
-
-        .video-placeholder span {
-          font-size: 1.5rem;
-          color: #666;
-        }
-      `}</style>
     </div>
   );
 };
@@ -265,11 +372,36 @@ export default Videocall;
 
 const videoContainerStyle: CSSProperties = {
   display: 'flex',
-  justifyContent: 'center',
-  alignItems: 'center',
+  flexWrap: 'wrap',
+  gap: '10px',
+  alignItems: 'flex-start',
   width: '100%',
-  height: '75vh',
-  marginTop: '1.5rem'
+  height: '100%',
+  padding: '20px',
+  backgroundColor: '#000',
+  borderRadius: '8px',
+  maxWidth: '1200px',
+  margin: '0 auto',
+  minHeight: '600px',
 };
 
-const userName = `User-${new Date().getTime().toString().slice(8)}`;
+const videoWrapperStyle: CSSProperties = {
+  width: '320px',
+  height: '240px',
+  backgroundColor: '#333',
+  overflow: 'hidden',
+  position: 'relative',
+  flexShrink: 0,
+};
+
+const placeholderStyle: CSSProperties = {
+  width: '100%',
+  height: '100%',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  backgroundColor: '#2d2d2d',
+  color: '#fff',
+  fontSize: '1.2rem',
+  fontWeight: 'bold',
+};
