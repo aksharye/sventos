@@ -11,6 +11,20 @@ import { PhoneOff, MonitorUp, MicOff } from "lucide-react";
 import { Button } from "./ui/button";
 import { startVideoStream, stopVideoStream } from '../utils/videoUtils';
 import { getRandomPosition, calculateMaxDimensions } from '../utils/layoutUtils';
+import React from "react";
+
+interface VideoPlayerContainerProps {
+  ref: React.RefObject<HTMLDivElement>;
+  style: React.CSSProperties;
+  children: React.ReactNode;
+}
+
+const VideoPlayerContainer = React.forwardRef<HTMLDivElement, Omit<VideoPlayerContainerProps, 'ref'>>(
+  ({ style, children }, ref) => {
+    return <div ref={ref} style={style}>{children}</div>;
+  }
+);
+VideoPlayerContainer.displayName = "video-player-container";
 
 const Videocall = (props: { slug: string; JWT: string }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -18,14 +32,10 @@ const Videocall = (props: { slug: string; JWT: string }) => {
   const jwt = props.JWT;
   const [inSession, setInSession] = useState(false);
   const client = useRef(ZoomVideo.createClient());
-  const [isVideoMuted, setIsVideoMuted] = useState(true);
+  const [isVideoMuted, setIsVideoMuted] = useState(false);
   const [isAudioMuted, setIsAudioMuted] = useState(true);
   const [isSharing, setIsSharing] = useState(false);
   const [userName] = useState(`User-${Math.floor(Math.random() * 1000)}`);
-  const [participants, setParticipants] = useState<Set<number>>(new Set());
-  const [activeShares, setActiveShares] = useState<Set<number>>(new Set());
-
-  
 
   const renderVideo = async (event: { action: "Start" | "Stop"; userId: number; }) => {
     try {
@@ -35,6 +45,7 @@ const Videocall = (props: { slug: string; JWT: string }) => {
       const isLocalUser = currentUserId === event.userId;
 
       // Get video container from existing slot
+      if (!containerRef.current) return;
       let videoContainer = containerRef.current.querySelector(
         `#video-${event.userId}`
       ) as HTMLDivElement;
@@ -48,68 +59,86 @@ const Videocall = (props: { slug: string; JWT: string }) => {
           draggableWrapper.style.position = 'absolute';
           draggableWrapper.style.width = '320px';
           draggableWrapper.style.height = '240px';
-          draggableWrapper.style.cursor = 'move';
-          draggableWrapper.style.border = '6px solid transparent';
+          draggableWrapper.style.border = '1px solid #334155';
           draggableWrapper.style.boxSizing = 'border-box';
-          
-          // Add resize zones
-          const edges = [
-            { class: 'resize-right', style: 'right: -3px; top: 0; width: 6px; height: 100%; cursor: e-resize;' },
-            { class: 'resize-bottom', style: 'bottom: -3px; left: 0; width: 100%; height: 6px; cursor: s-resize;' },
-            { class: 'resize-corner', style: 'right: -3px; bottom: -3px; width: 20px; height: 20px; cursor: se-resize; background: rgba(255,255,255,0.2); border-radius: 0 0 4px 0;' }
-          ];
-          
-          edges.forEach(edge => {
-            const resizeZone = document.createElement('div');
-            resizeZone.className = edge.class;
-            resizeZone.style.cssText = `position: absolute; ${edge.style}`;
-            
-            let isResizing = false;
-            let startX = 0;
-            let startY = 0;
-            let startWidth = 0;
-            let startHeight = 0;
-            
-            resizeZone.addEventListener('mousedown', (e) => {
-              e.stopPropagation();
-              isResizing = true;
-              startX = e.clientX;
-              startY = e.clientY;
-              startWidth = draggableWrapper.offsetWidth;
-              startHeight = draggableWrapper.offsetHeight;
-              draggableWrapper.style.userSelect = 'none';
-            });
-            
-            document.addEventListener('mousemove', (e) => {
-              if (!isResizing) return;
-              e.preventDefault();
-              
-              const dx = e.clientX - startX;
-              const dy = e.clientY - startY;
-              
-              if (edge.class.includes('right')) {
-                draggableWrapper.style.width = `${Math.max(200, startWidth + dx)}px`;
-              }
-              if (edge.class.includes('bottom')) {
-                draggableWrapper.style.height = `${Math.max(150, startHeight + dy)}px`;
-              }
-            });
-            
-            document.addEventListener('mouseup', () => {
-              isResizing = false;
-              draggableWrapper.style.userSelect = 'auto';
-            });
-            
-            draggableWrapper.appendChild(resizeZone);
-          });
+          draggableWrapper.style.minWidth = '200px';
+          draggableWrapper.style.minHeight = '150px';
+          draggableWrapper.style.cursor = 'se-resize';
           draggableWrapper.style.resize = 'both';
           draggableWrapper.style.overflow = 'hidden';
           
+          // Random position for all videos
           const containerRect = videosContainer.getBoundingClientRect();
           const { maxX, maxY } = calculateMaxDimensions(containerRect, 320, 240);
           const { x, y } = getRandomPosition(maxX, maxY);
           draggableWrapper.style.left = `${x}px`;
           draggableWrapper.style.top = `${y}px`;
+          
+          // Add drag handlers for Command key
+          let isDragging = false;
+          let initialX = 0; 
+          let initialY = 0;
+
+          const startDragging = (e: { metaKey: any; clientX: number; clientY: number; }) => {
+            if (!e.metaKey) {
+              // Enable resize mode by default
+              draggableWrapper.style.resize = 'both';
+              draggableWrapper.style.overflow = 'hidden';
+              draggableWrapper.style.cursor = 'se-resize';
+              return;
+            }
+            // Enable drag mode with Command key
+            isDragging = true;
+            draggableWrapper.style.resize = 'none';
+            draggableWrapper.style.overflow = 'visible';
+            const rect = draggableWrapper.getBoundingClientRect();
+            initialX = e.clientX - rect.left;
+            initialY = e.clientY - rect.top;
+            draggableWrapper.style.zIndex = '100';
+            draggableWrapper.style.cursor = 'grabbing';
+          };
+
+          const stopDragging = () => {
+            isDragging = false;
+            draggableWrapper.style.zIndex = '50';
+            draggableWrapper.style.resize = 'both';
+            draggableWrapper.style.overflow = 'hidden';
+            draggableWrapper.style.cursor = 'se-resize';
+          };
+
+          const drag = (e: { preventDefault: () => void; clientX: number; clientY: number; }) => {
+            if (!isDragging) return;
+            e.preventDefault();
+            const x = e.clientX - initialX;
+            const y = e.clientY - initialY;
+            
+            // Keep within the container bounds
+            const bounds = videosContainer.getBoundingClientRect();
+            const newX = Math.max(bounds.left, Math.min(x, bounds.right - draggableWrapper.offsetWidth));
+            const newY = Math.max(bounds.top, Math.min(y, bounds.bottom - draggableWrapper.offsetHeight));
+            
+            draggableWrapper.style.left = `${newX - bounds.left}px`;
+            draggableWrapper.style.top = `${newY - bounds.top}px`;
+          };
+
+          draggableWrapper.addEventListener('mousedown', startDragging);
+          document.addEventListener('mousemove', drag);
+          document.addEventListener('mouseup', stopDragging);
+          
+          // Update cursor when Command key changes
+          document.addEventListener('keydown', (e) => {
+            if (e.metaKey) draggableWrapper.style.cursor = 'grab';
+          });
+          document.addEventListener('keyup', (e) => {
+            if (e.key === 'Meta') draggableWrapper.style.cursor = 'se-resize';
+          });
+          
+          // Bring element to front on click
+          draggableWrapper.addEventListener('click', () => {
+            const allWrappers = document.querySelectorAll('.draggable-video, .draggable-share');
+            allWrappers.forEach(wrapper => (wrapper as HTMLElement).style.zIndex = '50'); // Reset all
+            draggableWrapper.style.zIndex = '100'; // Bring clicked one to front
+          });
           
           // Create video container
           videoContainer = document.createElement('div');
@@ -130,24 +159,32 @@ const Videocall = (props: { slug: string; JWT: string }) => {
           videoElement.style.objectFit = 'contain';
           videoElement.style.borderRadius = '16px';
           
-          // Add name label
-          const nameLabel = document.createElement('div');
-          nameLabel.style.position = 'absolute';
-          nameLabel.style.top = '10px';
-          nameLabel.style.left = '10px';
-          nameLabel.style.background = 'rgba(0,0,0,0.5)';
-          nameLabel.style.color = 'white';
-          nameLabel.style.padding = '5px';
-          nameLabel.style.borderRadius = '4px';
-          nameLabel.style.fontSize = '12px';
-          nameLabel.textContent = isLocalUser ? 'You' : `User ${event.userId}`;
+          // Mirror local video
+          if (isLocalUser) {
+            videoElement.style.transform = 'scaleX(-1)';
+          }
           
           videoContainer.appendChild(videoElement);
-          videoContainer.appendChild(nameLabel);
           draggableWrapper.appendChild(videoContainer);
           videosContainer.appendChild(draggableWrapper);
         }
       }
+
+      const videoWrapperStyle: CSSProperties = {
+        width: '100%',
+        height: '100%',
+        backgroundColor: '#1E293B',
+        borderRadius: '16px',
+        overflow: 'hidden',
+        position: 'relative',
+        flexShrink: 0,
+        border: '1px solid #334155',
+        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+        transition: 'transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out',
+        cursor: 'move',
+        userSelect: 'none',
+        touchAction: 'none',
+      };
 
       if (!videoContainer &&event.action === "Stop") {
         videoContainer = document.createElement('div');
@@ -226,23 +263,6 @@ const Videocall = (props: { slug: string; JWT: string }) => {
       } else {
         videoContainer.style.backgroundColor = 'rgba(20,20,20,1.0)';
       }
-
-
-      // Add name label
-      const nameLabel = document.createElement('div');
-      Object.assign(nameLabel.style, {
-        position: 'absolute',
-        bottom: '10px',
-        left: '10px',
-        background: 'rgba(0,0,0,0.5)',
-        color: 'white',
-        padding: '5px',
-        borderRadius: '4px',
-        fontSize: '12px'
-      });
-      nameLabel.textContent = isLocalUser ? `${userName} (You)` : `Participant ${event.userId}`;
-      
-      videoContainer.appendChild(nameLabel);
       
       if (isLocalUser) setIsVideoMuted(false);
     } catch (error) {
@@ -260,9 +280,18 @@ const Videocall = (props: { slug: string; JWT: string }) => {
     client.current.on("user-added", (payload) => {
       console.log("user-added", payload);
     });
-    client.current.on("user-removed", (payload) => {
-      console.log("user-removed", payload);
-    });
+    // client.current.on("user-removed", (payload) => {
+    //   if (!containerRef.current) return;
+    //   if (!payload) return;
+    //   if (!payload.userId) return;
+    //   const videoContainer = containerRef.current.querySelector(`#video-${payload.userId}`);
+    //   if (videoContainer) {
+    //     const parentElement = videoContainer.parentElement;
+    //     if (parentElement) {
+    //       parentElement.remove(); // Remove the draggable wrapper
+    //     }
+    //   }
+    // });
     await client.current.join(session, jwt, userName).catch((e) => {
       console.log(e);
     });
@@ -299,197 +328,158 @@ const Videocall = (props: { slug: string; JWT: string }) => {
   async function handleShareChange(payload: { state: 'Active' | 'Inactive', userId: number }) {
     if (!client.current || !containerRef.current) return;
     
-    try {
-      const mediaStream = client.current.getMediaStream();
-      const sharesContainer = containerRef.current.querySelector('#shares-container');
-      if (!sharesContainer) return;
+    const mediaStream = client.current.getMediaStream();
+    let sharesContainer = containerRef.current.querySelector('#shares-container');
+    if (!sharesContainer) return;
 
-      if (payload.state === 'Active') {
-        setActiveShares(prev => new Set([...prev, payload.userId]));
-        
-        // Create draggable wrapper for screen shares
-        const draggableWrapper = document.createElement('div');
-        draggableWrapper.className = 'draggable-share';
-        draggableWrapper.style.position = 'absolute';
-        draggableWrapper.style.cursor = 'move';
+    if (payload.state === 'Active') {        
+      // Create draggable wrapper for screen shares
+      const draggableWrapper = document.createElement('div');
+      draggableWrapper.className = 'draggable-share';
+      draggableWrapper.style.position = 'absolute';
+      draggableWrapper.style.zIndex = '50';
+      draggableWrapper.style.resize = 'both';
+      draggableWrapper.style.overflow = 'hidden';
+      draggableWrapper.style.cursor = 'default';
+
+      // Set maximum size for incoming screens
+      const maxWidth = 320; // Maximum width
+      const maxHeight = 240; // Maximum height
+      draggableWrapper.style.width = `${maxWidth}px`;
+      draggableWrapper.style.height = `${maxHeight}px`;
+
+      // Random initial position
+      const containerRect = sharesContainer.getBoundingClientRect();
+      const maxX = containerRect.width - maxWidth;
+      const maxY = containerRect.height - maxHeight;
+      draggableWrapper.style.left = `${Math.random() * maxX}px`;
+      draggableWrapper.style.top = `${Math.random() * maxY}px`;
+
+      // Create video container
+      const videoContainer = document.createElement('div');
+      videoContainer.id = `share-${payload.userId}`;
+      videoContainer.style.width = '100%';
+      videoContainer.style.height = '100%';
+      videoContainer.style.position = 'relative';
+      videoContainer.style.overflow = 'hidden';
+      videoContainer.style.borderRadius = '16px';
+      videoContainer.style.backgroundColor = '#1E293B';
+      videoContainer.style.border = '1px solid #334155';
+      videoContainer.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
+
+      // Add drag handlers for Command key
+      let isDragging = false;
+      let initialX = 0;
+      let initialY = 0;
+
+      const startDragging = (e: MouseEvent) => {
+        if (!e.metaKey) return; // Only start dragging if Command key is pressed
+        isDragging = true;
+        const rect = draggableWrapper.getBoundingClientRect();
+        initialX = e.clientX - rect.left;
+        initialY = e.clientY - rect.top;
+        draggableWrapper.style.zIndex = '100';
+        draggableWrapper.style.cursor = 'grabbing';
+      };
+
+      const stopDragging = () => {
+        isDragging = false;
         draggableWrapper.style.zIndex = '50';
+        draggableWrapper.style.cursor = 'default';
+      };
 
-        // Random initial position
-        const containerRect = sharesContainer.getBoundingClientRect();
-        const maxX = containerRect.width - 640;
-        const maxY = containerRect.height - 480;
-        draggableWrapper.style.left = `${Math.random() * maxX}px`;
-        draggableWrapper.style.top = `${Math.random() * maxY}px`;
-
-        // Create video container
-        const videoContainer = document.createElement('div');
-        videoContainer.id = `share-${payload.userId}`;
-        videoContainer.style.width = '100%';
-        videoContainer.style.height = '100%';
-        videoContainer.style.position = 'relative';
-        videoContainer.style.overflow = 'hidden';
-        videoContainer.style.borderRadius = '16px';
-        videoContainer.style.backgroundColor = '#1E293B';
-        videoContainer.style.border = '1px solid #334155';
-        videoContainer.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
-
-        // Add drag handlers
-        let isDragging = false;
-        let initialX;
-        let initialY;
-
-        const startDragging = (e) => {
-          isDragging = true;
-          const rect = draggableWrapper.getBoundingClientRect();
-          initialX = e.clientX - rect.left;
-          initialY = e.clientY - rect.top;
-          draggableWrapper.style.zIndex = '100';
-        };
-
-        const stopDragging = () => {
-          isDragging = false;
-          draggableWrapper.style.zIndex = '50';
-        };
-
-        const drag = (e) => {
-          if (isDragging) {
-            e.preventDefault();
-            const x = e.clientX - initialX;
-            const y = e.clientY - initialY;
-            
-            // Keep within the container bounds
-            const bounds = sharesContainer.getBoundingClientRect();
-            const newX = Math.max(bounds.left, Math.min(x, bounds.right - draggableWrapper.offsetWidth));
-            const newY = Math.max(bounds.top, Math.min(y, bounds.bottom - draggableWrapper.offsetHeight));
-            
-            draggableWrapper.style.left = `${newX - bounds.left}px`;
-            draggableWrapper.style.top = `${newY - bounds.top}px`;
-          }
-        };
-
-        draggableWrapper.addEventListener('mousedown', startDragging);
-        document.addEventListener('mousemove', drag);
-        document.addEventListener('mouseup', stopDragging);
-
-        // Create video element
-        const videoElement = document.createElement('canvas');
-        videoElement.style.width = '100%';
-        videoElement.style.height = '100%';
-        videoElement.style.objectFit = 'contain';
-        videoElement.style.borderRadius = '16px';
-        videoElement.style.transform = 'none';
-        videoElement.style.transition = 'none';
-
-        // Append elements
-        videoContainer.appendChild(videoElement);
-        draggableWrapper.appendChild(videoContainer);
-        sharesContainer.appendChild(draggableWrapper);
-
-        // Start share view
-        await mediaStream.startShareView(videoElement, payload.userId);
-      } else if (payload.state === 'Inactive') {
-        setActiveShares(prev => {
-          const newShares = new Set(prev);
-          newShares.delete(payload.userId);
-          return newShares;
-        });
+      const drag = (e: MouseEvent) => {
+        if (!isDragging) return;
+        e.preventDefault();
+        const x = e.clientX - initialX;
+        const y = e.clientY - initialY;
         
-        const shareContainer = containerRef.current.querySelector(`#share-${payload.userId}`);
-        if (shareContainer) {
-          const parentElement = shareContainer.parentElement;
-          if (parentElement) {
-            parentElement.remove(); // Remove the draggable wrapper
+        // Keep within the container bounds
+        const bounds = sharesContainer.getBoundingClientRect();
+        const newX = Math.max(bounds.left, Math.min(x, bounds.right - draggableWrapper.offsetWidth));
+        const newY = Math.max(bounds.top, Math.min(y, bounds.bottom - draggableWrapper.offsetHeight));
+        
+        draggableWrapper.style.left = `${newX - bounds.left}px`;
+        draggableWrapper.style.top = `${newY - bounds.top}px`;
+      };
+
+      draggableWrapper.addEventListener('mousedown', startDragging);
+      document.addEventListener('mousemove', drag);
+      document.addEventListener('mouseup', stopDragging);
+      
+      // Update cursor when Command key changes
+      document.addEventListener('keydown', (e) => {
+        if (e.metaKey) draggableWrapper.style.cursor = 'grab';
+      });
+      document.addEventListener('keyup', (e) => {
+        if (e.key === 'Meta') draggableWrapper.style.cursor = 'default';
+      });
+
+      // Bring element to front on click
+      draggableWrapper.addEventListener('click', () => {
+        const allWrappers = document.querySelectorAll('.draggable-video, .draggable-share');
+        allWrappers.forEach(wrapper => (wrapper as HTMLElement).style.zIndex = '50'); // Reset all
+        draggableWrapper.style.zIndex = '100'; // Bring clicked one to front
+      });
+
+      // Create video element
+      const videoElement = document.createElement('canvas');
+      videoElement.style.width = '100%';
+      videoElement.style.height = '100%';
+      videoElement.style.objectFit = 'contain';
+      videoElement.style.borderRadius = '16px';
+      videoElement.style.transform = 'none';
+      videoElement.style.transition = 'none';
+
+      // Append elements
+      videoContainer.appendChild(videoElement);
+      draggableWrapper.appendChild(videoContainer);
+      sharesContainer.appendChild(draggableWrapper);
+
+      // Start share view
+      await mediaStream.startShareView(videoElement, payload.userId);
+    } else if (payload.state === 'Inactive') {
+      // Remove share container when screenshare stops
+      const shareContainer = containerRef.current.querySelector(`#share-${payload.userId}`);
+      if (shareContainer) {
+        const parentElement = shareContainer.parentElement;
+        if (parentElement) {
+          // Clean up event listeners
+          if (parentElement.parentNode) {
+            const clone = parentElement.cloneNode(true) as HTMLElement;
+            parentElement.parentNode.replaceChild(clone, parentElement);
+            clone.remove();
           }
         }
+        setIsSharing(false);
         await mediaStream.stopShareView();
       }
-    } catch (error) {
-      console.error('Error handling share change:', error);
     }
   };
 
   const toggleShare = async () => {
-    if (!client.current || !containerRef.current) return;
-    
     try {
+      if (!client.current || !containerRef.current) return;
       const mediaStream = client.current.getMediaStream();
-      const sharesContainer = containerRef.current.querySelector('#shares-container');
-      if (!sharesContainer) return;
       
-      const userId = client.current.getCurrentUserInfo().userId;
-      
-      if (isSharing) {
-        await mediaStream.stopShareScreen();
-        const shareContainer = sharesContainer.querySelector(`#share-${userId}`);
-        if (shareContainer) {
-          shareContainer.remove();
-        }
-        setIsSharing(false);
-      } else {
+      if (!isSharing) {
         // Create draggable wrapper for screen shares
         const draggableWrapper = document.createElement('div');
         draggableWrapper.className = 'draggable-share';
         draggableWrapper.style.position = 'absolute';
-        draggableWrapper.style.cursor = 'move';
         draggableWrapper.style.zIndex = '50';
         draggableWrapper.style.width = '640px';
         draggableWrapper.style.height = '480px';
-        draggableWrapper.style.border = '6px solid transparent';
+        draggableWrapper.style.border = '1px solid #334155';
         draggableWrapper.style.boxSizing = 'border-box';
-        
-        // Add resize zones
-        const edges = [
-          { class: 'resize-right', style: 'right: -3px; top: 0; width: 6px; height: 100%; cursor: e-resize;' },
-          { class: 'resize-bottom', style: 'bottom: -3px; left: 0; width: 100%; height: 6px; cursor: s-resize;' },
-          { class: 'resize-corner', style: 'right: -3px; bottom: -3px; width: 20px; height: 20px; cursor: se-resize; background: rgba(255,255,255,0.2); border-radius: 0 0 4px 0;' }
-        ];
-        
-        edges.forEach(edge => {
-          const resizeZone = document.createElement('div');
-          resizeZone.className = edge.class;
-          resizeZone.style.cssText = `position: absolute; ${edge.style}`;
-          
-          let isResizing = false;
-          let startX = 0;
-          let startY = 0;
-          let startWidth = 0;
-          let startHeight = 0;
-          
-          resizeZone.addEventListener('mousedown', (e) => {
-            e.stopPropagation();
-            isResizing = true;
-            startX = e.clientX;
-            startY = e.clientY;
-            startWidth = draggableWrapper.offsetWidth;
-            startHeight = draggableWrapper.offsetHeight;
-            draggableWrapper.style.userSelect = 'none';
-          });
-          
-          document.addEventListener('mousemove', (e) => {
-            if (!isResizing) return;
-            e.preventDefault();
-            
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
-            
-            if (edge.class.includes('right')) {
-              draggableWrapper.style.width = `${Math.max(320, startWidth + dx)}px`;
-            }
-            if (edge.class.includes('bottom')) {
-              draggableWrapper.style.height = `${Math.max(240, startHeight + dy)}px`;
-            }
-          });
-          
-          document.addEventListener('mouseup', () => {
-            isResizing = false;
-            draggableWrapper.style.userSelect = 'auto';
-          });
-          
-          draggableWrapper.appendChild(resizeZone);
-        });
+        draggableWrapper.style.minWidth = '320px';
+        draggableWrapper.style.minHeight = '240px';
         draggableWrapper.style.resize = 'both';
         draggableWrapper.style.overflow = 'hidden';
+        draggableWrapper.style.cursor = 'default';
         
+        let sharesContainer = containerRef.current.querySelector('#shares-container');
+        if (!sharesContainer) return;
         const containerRect = sharesContainer.getBoundingClientRect();
         const maxX = containerRect.width - 640;
         const maxY = containerRect.height - 480;
@@ -498,7 +488,7 @@ const Videocall = (props: { slug: string; JWT: string }) => {
 
         // Create video container
         const videoContainer = document.createElement('div');
-        videoContainer.id = `share-${userId}`;
+        videoContainer.id = `share-${client.current.getCurrentUserInfo().userId}`;
         videoContainer.style.width = '100%';
         videoContainer.style.height = '100%';
         videoContainer.style.position = 'relative';
@@ -508,31 +498,37 @@ const Videocall = (props: { slug: string; JWT: string }) => {
         videoContainer.style.border = '1px solid #334155';
         videoContainer.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
 
-        // Add drag handlers
+        // Add drag handlers for Command key
         let isDragging = false;
-        let initialX;
-        let initialY;
+        let initialX = 0;
+        let initialY = 0;
 
-        const startDragging = (e) => {
+        const startDragging = (e: MouseEvent) => {
+          if (!e.metaKey) return; // Only start dragging if Command key is pressed
           isDragging = true;
           const rect = draggableWrapper.getBoundingClientRect();
           initialX = e.clientX - rect.left;
           initialY = e.clientY - rect.top;
           draggableWrapper.style.zIndex = '100';
+          draggableWrapper.style.cursor = 'grabbing';
         };
 
         const stopDragging = () => {
           isDragging = false;
           draggableWrapper.style.zIndex = '50';
+          draggableWrapper.style.cursor = 'default';
         };
 
-        const drag = (e) => {
-          if (isDragging) {
-            e.preventDefault();
-            const x = e.clientX - initialX;
-            const y = e.clientY - initialY;
-            
-            // Keep within the container bounds
+        const drag = (e: MouseEvent) => {
+          if (!isDragging) return;
+          e.preventDefault();
+          const x = e.clientX - initialX;
+          const y = e.clientY - initialY;
+          
+          // Keep within the container bounds
+          if (!containerRef.current) return;
+          let sharesContainer = containerRef.current.querySelector('#shares-container');
+          if (sharesContainer) {
             const bounds = sharesContainer.getBoundingClientRect();
             const newX = Math.max(bounds.left, Math.min(x, bounds.right - draggableWrapper.offsetWidth));
             const newY = Math.max(bounds.top, Math.min(y, bounds.bottom - draggableWrapper.offsetHeight));
@@ -545,6 +541,21 @@ const Videocall = (props: { slug: string; JWT: string }) => {
         draggableWrapper.addEventListener('mousedown', startDragging);
         document.addEventListener('mousemove', drag);
         document.addEventListener('mouseup', stopDragging);
+        
+        // Update cursor when Command key changes
+        document.addEventListener('keydown', (e) => {
+          if (e.metaKey) draggableWrapper.style.cursor = 'grab';
+        });
+        document.addEventListener('keyup', (e) => {
+          if (e.key === 'Meta') draggableWrapper.style.cursor = 'default';
+        });
+
+        // Bring element to front on click
+        draggableWrapper.addEventListener('click', () => {
+          const allWrappers = document.querySelectorAll('.draggable-video, .draggable-share');
+          allWrappers.forEach(wrapper => (wrapper as HTMLElement).style.zIndex = '50'); // Reset all
+          draggableWrapper.style.zIndex = '100'; // Bring clicked one to front
+        });
 
         // Create video element
         const videoElement = document.createElement('video');
@@ -572,10 +583,13 @@ const Videocall = (props: { slug: string; JWT: string }) => {
         videoContainer.appendChild(videoElement);
         videoContainer.appendChild(nameLabel);
         draggableWrapper.appendChild(videoContainer);
-        sharesContainer.appendChild(draggableWrapper);
+        if (sharesContainer) sharesContainer.appendChild(draggableWrapper);
         
         await mediaStream.startShareScreen(videoElement);
         setIsSharing(true);
+      } else {
+        await mediaStream.stopShareScreen();
+        setIsSharing(false);
       }
     } catch (error) {
       console.error('Error toggling screen share:', error);
@@ -604,6 +618,16 @@ const Videocall = (props: { slug: string; JWT: string }) => {
     };
   }, []);
 
+  const videoContainerStyle: CSSProperties = {
+    display: 'flex',
+    flexDirection: 'column',
+    width: '100%',
+    height: '100%',
+    padding: '1.5rem',
+    gap: '1.5rem',
+    position: 'relative',
+  };
+
   return (
 
     <div className="fixed inset-0 bg-[#0F172A] overflow-hidden">
@@ -616,26 +640,20 @@ const Videocall = (props: { slug: string; JWT: string }) => {
         className="h-full w-full"
         style={inSession ? {} : { display: "none" }}
       >
-        <video-player-container ref={containerRef} style={videoContainerStyle}>
+        <VideoPlayerContainer ref={containerRef} style={videoContainerStyle}>
           {/* Videos container */}
           <div className="absolute inset-0 z-0">
             <div id="videos-container" className="absolute inset-0 overflow-hidden"></div>
             
             {/* Screen shares container */}
-            <div id="shares-container" className="absolute inset-0 overflow-hidden pointer-events-none">
-              <div className="pointer-events-auto" style={{
-                position: 'absolute',
-                inset: 0,
-                overflow: 'hidden'
-              }}></div>
-            </div>
+            <div id="shares-container" className="absolute inset-0 overflow-hidden"></div>
           </div>
-        </video-player-container>
+        </VideoPlayerContainer>
       </div>
       {!inSession ? (
         <div className="mx-auto flex w-64 flex-col self-center mt-[40vh]">
           <div className="w-4" />
-          <Button className="flex flex-1" onClick={joinSession} title="join session">
+          <Button className="flex flex-1 bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-full shadow-md transition duration-300 ease-in-out transform hover:scale-105" onClick={joinSession} title="join session">
             Join
           </Button>
         </div>
@@ -680,51 +698,3 @@ const Videocall = (props: { slug: string; JWT: string }) => {
 };
 
 export default Videocall;
-
-const videoContainerStyle: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  width: '100%',
-  height: '100%',
-  padding: '1.5rem',
-  gap: '1.5rem',
-  position: 'relative',
-};
-
-const videoWrapperStyle: CSSProperties = {
-  width: '100%',
-  height: '100%',
-  backgroundColor: '#1E293B',
-  borderRadius: '16px',
-  overflow: 'hidden',
-  position: 'relative',
-  flexShrink: 0,
-  border: '1px solid #334155',
-  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-  transition: 'transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out',
-  cursor: 'move',
-  userSelect: 'none',
-  touchAction: 'none',
-  '&:hover': {
-    boxShadow: '0 8px 12px -2px rgba(0, 0, 0, 0.2)',
-    transform: 'scale(1.02)'
-  },
-  '&:active': {
-    boxShadow: '0 6px 8px -4px rgba(0, 0, 0, 0.1)',
-    transform: 'scale(0.98)'
-  }
-};
-
-const placeholderStyle: CSSProperties = {
-  width: '100%',
-  height: '100%',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  background: 'rgba(30, 41, 59, 0.5)',
-  color: '#94A3B8',
-  fontSize: '1.1rem',
-  fontWeight: '500',
-  letterSpacing: '0.025em',
-  backdropFilter: 'blur(8px)',
-};

@@ -3,7 +3,7 @@
 import { useRef } from "react";
 import { Rnd } from "react-rnd";
 
-const DraggableResizable = ({ children }) => {
+const DraggableResizable = ({ children }:   { children: any }) => {
   const nodeRef = useRef(null);
 
   return (
@@ -17,7 +17,6 @@ const DraggableResizable = ({ children }) => {
       minWidth={200}
       minHeight={150}
       bounds="parent"
-      dragHandleClassName="handle"
       enableResizing={{
         top: true,
         right: true,

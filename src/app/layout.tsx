@@ -10,8 +10,8 @@ export const viewport: Viewport = {
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Zoom VideoSDK",
-  description: "Zoom x Next.js",
+  title: "Sventos",
+  description: "Zoom x Custom Layouts",
   icons: {
     icon: "/favicon.svg",
   },
