@@ -9,6 +9,8 @@ import ZoomVideo, {
 import { CameraButton, MicButton } from "./MuteButtons";
 import { PhoneOff, MonitorUp, MicOff } from "lucide-react";
 import { Button } from "./ui/button";
+import { startVideoStream, stopVideoStream } from '../utils/videoUtils';
+import { getRandomPosition, calculateMaxDimensions } from '../utils/layoutUtils';
 
 const Videocall = (props: { slug: string; JWT: string }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -103,101 +105,45 @@ const Videocall = (props: { slug: string; JWT: string }) => {
           draggableWrapper.style.resize = 'both';
           draggableWrapper.style.overflow = 'hidden';
           
-          // Random initial position
           const containerRect = videosContainer.getBoundingClientRect();
-          const maxX = containerRect.width - 320;
-          const maxY = containerRect.height - 240;
-          draggableWrapper.style.left = `${Math.random() * maxX}px`;
-          draggableWrapper.style.top = `${Math.random() * maxY}px`;
+          const { maxX, maxY } = calculateMaxDimensions(containerRect, 320, 240);
+          const { x, y } = getRandomPosition(maxX, maxY);
+          draggableWrapper.style.left = `${x}px`;
+          draggableWrapper.style.top = `${y}px`;
           
           // Create video container
           videoContainer = document.createElement('div');
           videoContainer.id = `video-${event.userId}`;
-          Object.assign(videoContainer.style, videoWrapperStyle);
+          videoContainer.style.width = '100%';
+          videoContainer.style.height = '100%';
+          videoContainer.style.position = 'relative';
+          videoContainer.style.overflow = 'hidden';
+          videoContainer.style.borderRadius = '16px';
+          videoContainer.style.backgroundColor = '#1E293B';
+          videoContainer.style.border = '1px solid #334155';
+          videoContainer.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
           
-          // Add drag handlers
-          let isDragging = false;
-          let initialX;
-          let initialY;
+          // Create video element
+          const videoElement = document.createElement('video');
+          videoElement.style.width = '100%';
+          videoElement.style.height = '100%';
+          videoElement.style.objectFit = 'contain';
+          videoElement.style.borderRadius = '16px';
           
-          const startDragging = (e) => {
-            isDragging = true;
-            const rect = draggableWrapper.getBoundingClientRect();
-            initialX = e.clientX - rect.left;
-            initialY = e.clientY - rect.top;
-            draggableWrapper.style.zIndex = '100';
-          };
+          // Add name label
+          const nameLabel = document.createElement('div');
+          nameLabel.style.position = 'absolute';
+          nameLabel.style.top = '10px';
+          nameLabel.style.left = '10px';
+          nameLabel.style.background = 'rgba(0,0,0,0.5)';
+          nameLabel.style.color = 'white';
+          nameLabel.style.padding = '5px';
+          nameLabel.style.borderRadius = '4px';
+          nameLabel.style.fontSize = '12px';
+          nameLabel.textContent = isLocalUser ? 'You' : `User ${event.userId}`;
           
-          const stopDragging = () => {
-            isDragging = false;
-            draggableWrapper.style.zIndex = '1';
-          };
-          
-          const drag = (e) => {
-            if (isDragging) {
-              e.preventDefault();
-              const x = e.clientX - initialX;
-              const y = e.clientY - initialY;
-              
-              // Keep within the container bounds
-              const bounds = videosContainer.getBoundingClientRect();
-              const newX = Math.max(bounds.left, Math.min(x, bounds.right - draggableWrapper.offsetWidth));
-              const newY = Math.max(bounds.top, Math.min(y, bounds.bottom - draggableWrapper.offsetHeight));
-              
-              draggableWrapper.style.left = `${newX - bounds.left}px`;
-              draggableWrapper.style.top = `${newY - bounds.top}px`;
-            }
-          };
-          
-          draggableWrapper.addEventListener('mousedown', startDragging);
-          document.addEventListener('mousemove', drag);
-          document.addEventListener('mouseup', stopDragging);
-          
-          // Add resize handle
-          const resizeHandle = document.createElement('div');
-          resizeHandle.style.position = 'absolute';
-          resizeHandle.style.right = '0';
-          resizeHandle.style.bottom = '0';
-          resizeHandle.style.width = '15px';
-          resizeHandle.style.height = '15px';
-          resizeHandle.style.cursor = 'se-resize';
-          resizeHandle.style.backgroundColor = 'rgba(255,255,255,0.3)';
-          resizeHandle.style.borderRadius = '0 0 4px 0';
-
-          let isResizing = false;
-          let startX = 0;
-          let startY = 0;
-          let startWidth = 0;
-          let startHeight = 0;
-
-          resizeHandle.addEventListener('mousedown', (e) => {
-            e.stopPropagation();
-            isResizing = true;
-            startX = e.clientX;
-            startY = e.clientY;
-            startWidth = draggableWrapper.offsetWidth;
-            startHeight = draggableWrapper.offsetHeight;
-            draggableWrapper.style.userSelect = 'none';
-          });
-
-          document.addEventListener('mousemove', (e) => {
-            if (!isResizing) return;
-            e.preventDefault();
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
-            draggableWrapper.style.width = `${Math.max(200, startWidth + dx)}px`;
-            draggableWrapper.style.height = `${Math.max(150, startHeight + dy)}px`;
-          });
-
-          document.addEventListener('mouseup', () => {
-            isResizing = false;
-            draggableWrapper.style.userSelect = 'auto';
-          });
-
-          draggableWrapper.appendChild(resizeHandle);
-
-          videoContainer.appendChild(resizeHandle);
-
+          videoContainer.appendChild(videoElement);
+          videoContainer.appendChild(nameLabel);
           draggableWrapper.appendChild(videoContainer);
           videosContainer.appendChild(draggableWrapper);
         }
@@ -301,9 +247,6 @@ const Videocall = (props: { slug: string; JWT: string }) => {
       if (isLocalUser) setIsVideoMuted(false);
     } catch (error) {
       console.error('Error rendering video:', error);
-      if (event.userId === client.current.getCurrentUserInfo().userId) {
-        setIsVideoMuted(true);
-      }
     }
   };
 
@@ -546,21 +489,8 @@ const Videocall = (props: { slug: string; JWT: string }) => {
         });
         draggableWrapper.style.resize = 'both';
         draggableWrapper.style.overflow = 'hidden';
-ition
-           // Add resize handle
-        const resizeHandle = document.createElement('div');
-        resizeHandle.style.position = 'absolute';
-        resizeHandle.style.right = '2px';
-        resizeHandle.style.bottom = '2px';
-        resizeHandle.style.width = '10px';
-        resizeHandle.style.height = '10px';
-        resizeHandle.style.cursor = 'se-resize';
-        resizeHandle.style.backgroundColor = 'rgba(255, 255, 255, 0.5)';
-        resizeHandle.style.borderRadius = '0 0 2px 0';
-        resizeHandle.style.pointerEvents = 'none';
         
-        draggableWrapper.appendChild(resizeHandle);
-    const containerRect = sharesContainer.getBoundingClientRect();
+        const containerRect = sharesContainer.getBoundingClientRect();
         const maxX = containerRect.width - 640;
         const maxY = containerRect.height - 480;
         draggableWrapper.style.left = `${Math.random() * maxX}px`;
