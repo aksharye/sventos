@@ -2,33 +2,26 @@
 
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import ZoomVideo, {
-  type VideoClient,
+  VideoClient,
   VideoQuality,
-  type VideoPlayer,
+  VideoPlayer,
   SharePrivilege,
 } from "@zoom/videosdk";
 import { CameraButton, MicButton } from "./MuteButtons";
-import { PhoneOff, MonitorUp, MicOff } from "lucide-react";
+import { PhoneOff, MonitorUp } from "lucide-react";
 import { Button } from "./ui/button";
 
-type VideoElement = {
-  wrapper: HTMLElement;
-  video?: VideoPlayer;
-  placeholder?: HTMLElement;
-};
-
 const shareMaps = new Map<number, HTMLCanvasElement>();
-const videoMaps = new Map<number, VideoElement>();
 
-const Videocall = (props: { slug: string; JWT: string }) => {
-  const session = props.slug;
-  const jwt = props.JWT;
+const Videocall = ({ slug, JWT }: { slug: string; JWT: string }) => {
+  const session = slug;
+  const jwt = JWT;
   const [inSession, setInSession] = useState(false);
   const client = useRef<typeof VideoClient>(ZoomVideo.createClient());
   const [isVideoMuted, setIsVideoMuted] = useState(true);
   const [isAudioMuted, setIsAudioMuted] = useState(true);
   const [isSharing, setIsSharing] = useState(false);
-  const [videoElements, setVideoElements] = useState<Map<number, VideoElement>>(new Map());
+  const videoContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     client.current = ZoomVideo.createClient();
@@ -62,64 +55,21 @@ const Videocall = (props: { slug: string; JWT: string }) => {
       action: "Start",
       userId: client.current.getCurrentUserInfo().userId,
     });
+
   };
 
-  const renderVideo = async (event: {
-    action: "Start" | "Stop";
-    userId: number;
-  }) => {
+  const renderVideo = async (event: { action: "Start" | "Stop"; userId: number }) => {
     if (!client.current) return;
     const mediaStream = client.current.getMediaStream();
-
-    // Remove existing video element if any
-    const existingElement = videoMaps.get(event.userId);
-    if (existingElement?.wrapper) {
-      existingElement.wrapper.remove();
-      videoMaps.delete(event.userId);
-    }
-
     if (event.action === "Stop") {
-      const placeholder = document.createElement('div');
-      placeholder.className = "video-placeholder";
-      placeholder.innerHTML = `<span>${userName}</span>`;
-      
-      const wrapper = document.createElement('div');
-      wrapper.appendChild(placeholder);
-      
-      videoMaps.set(event.userId, { wrapper, placeholder });
+      const element = await mediaStream.detachVideo(event.userId);
+      Array.isArray(element)
+        ? element.forEach((el) => el.remove())
+        : element?.remove();
     } else {
-      const userVideo = await mediaStream.attachVideo(
-        event.userId,
-        VideoQuality.Video_360P
-      ) as VideoPlayer;
-      
-      const wrapper = document.createElement('div');
-      wrapper.className = "video-wrapper";
-      wrapper.appendChild(userVideo as VideoPlayer);
-      
-      if (isAudioMuted) {
-        const muteIcon = document.createElement('div');
-        muteIcon.className = "mute-icon";
-        muteIcon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-mic-off"><line x1="2" y1="2" x2="22" y2="22"/><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2"/><path d="M5 12v-2a7 7 0 0 1 .11-1.23"/><path d="M12 19v3"/><path d="M8 22h8"/><path d="M12 1a3 3 0 0 1 3 3v6m0 3a3 3 0 0 1-5.94.6"/></svg>';
-        wrapper.appendChild(muteIcon);
-      }
-
-      videoMaps.set(event.userId, { wrapper, video: userVideo });
+      const userVideo = await mediaStream.attachVideo(event.userId, VideoQuality.Video_360P);
+      videoContainerRef.current?.appendChild(userVideo as VideoPlayer);
     }
-    
-    renderVideoElements();
-  };
-
-  const renderVideoElements = () => {
-    const container = document.getElementById('video-container');
-    if (!container) return;
-
-    container.innerHTML = ''
-
-    // Add all video elements
-    videoMaps.forEach((element) => {
-      container.appendChild(element.wrapper);
-    });
   };
 
   const toggleShare = async () => {
@@ -135,7 +85,7 @@ const Videocall = (props: { slug: string; JWT: string }) => {
       setIsSharing(false);
     } else {
       const videoElement = document.createElement('canvas');
-      document.getElementById('video-container')?.appendChild(videoElement);
+      videoContainerRef.current?.appendChild(videoElement);
       await mediaStream.startShareScreen(videoElement);
       shareMaps.set(client.current.getCurrentUserInfo().userId, videoElement);
       setIsSharing(true);
@@ -147,7 +97,7 @@ const Videocall = (props: { slug: string; JWT: string }) => {
     const mediaStream = client.current.getMediaStream();
     if (payload.state === 'Active') {
       const videoElement = document.createElement('canvas');
-      document.getElementById('video-container')?.appendChild(videoElement);
+      videoContainerRef.current?.appendChild(videoElement);
       await mediaStream.startShareView(videoElement, payload.userId);
       shareMaps.set(payload.userId, videoElement);
     } else if (payload.state === 'Inactive') {
@@ -156,7 +106,7 @@ const Videocall = (props: { slug: string; JWT: string }) => {
         videoElement.remove();
         shareMaps.delete(payload.userId);
       }
-      await mediaStream.stopShareView();
+      await mediaStream.stopShareView(payload.userId);
     }
   };
 
@@ -174,16 +124,10 @@ const Videocall = (props: { slug: string; JWT: string }) => {
         Session: {session}
       </h1>
       <div
-        className="flex w-full flex-1 justify-center items-center"
+        className="flex w-full flex-1"
         style={inSession ? {} : { display: "none" }}
       >
-        <div id="video-container" style={videoContainerStyle}>
-          {isVideoMuted && (
-            <div className="video-placeholder">
-              <span>{userName}</span>
-            </div>
-          )}
-        </div>
+        <div ref={videoContainerRef} style={videoPlayerStyle} />
       </div>
       {!inSession ? (
         <div className="mx-auto flex w-64 flex-col self-center">
@@ -215,61 +159,20 @@ const Videocall = (props: { slug: string; JWT: string }) => {
           </div>
         </div>
       )}
-      <style jsx global>{`
-        .video-wrapper {
-          position: relative;
-          width: 640px;
-          height: 480px;
-          border: 2px solid #ccc;
-          border-radius: 8px;
-          overflow: hidden;
-        }
-        
-        .video-wrapper video {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-        }
-
-        .mute-icon {
-          position: absolute;
-          bottom: 8px;
-          right: 8px;
-          background: rgba(255, 0, 0, 0.7);
-          padding: 4px;
-          border-radius: 50%;
-          color: white;
-        }
-
-        .video-placeholder {
-          width: 640px;
-          height: 480px;
-          background: #f0f0f0;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border: 2px solid #ccc;
-          border-radius: 8px;
-        }
-
-        .video-placeholder span {
-          font-size: 1.5rem;
-          color: #666;
-        }
-      `}</style>
     </div>
   );
 };
 
 export default Videocall;
 
-const videoContainerStyle: CSSProperties = {
-  display: 'flex',
-  justifyContent: 'center',
-  alignItems: 'center',
-  width: '100%',
-  height: '75vh',
-  marginTop: '1.5rem'
+const videoPlayerStyle: CSSProperties = {
+  height: "75vh",
+  marginTop: "1.5rem",
+  marginLeft: "3rem",
+  marginRight: "3rem",
+  alignContent: "center",
+  borderRadius: "10px",
+  overflow: "hidden",
 };
 
 const userName = `User-${new Date().getTime().toString().slice(8)}`;
