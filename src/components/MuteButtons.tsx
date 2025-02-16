@@ -14,8 +14,12 @@ const MicButton = (props: {
     setIsAudioMuted(client.current.getCurrentUserInfo().muted ?? true);
   };
   return (
-    <button onClick={onMicrophoneClick} title="microphone">
-      {isAudioMuted ? <MicOff /> : <Mic />}
+    <button
+      onClick={onMicrophoneClick}
+      title="microphone"
+      className="p-3 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all duration-200 shadow-md hover:shadow-lg border border-slate-700"
+    >
+      {isAudioMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
     </button>
   );
 };
@@ -52,8 +56,12 @@ const CameraButton = (props: {
   };
 
   return (
-    <button onClick={onCameraClick} title="camera">
-      {isVideoMuted ? <VideoOff /> : <Video />}
+    <button
+      onClick={onCameraClick}
+      title="camera"
+      className="p-3 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-all duration-200 shadow-md hover:shadow-lg border border-slate-700"
+    >
+      {isVideoMuted ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
     </button>
   );
 };

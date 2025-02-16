@@ -9,6 +9,8 @@ import ZoomVideo, {
 import { CameraButton, MicButton } from "./MuteButtons";
 import { PhoneOff, MonitorUp, MicOff } from "lucide-react";
 import { Button } from "./ui/button";
+import VideoContainer from "./VideoContainer";
+import * as ReactDOM from 'react-dom/client';
 
 const Videocall = (props: { slug: string; JWT: string }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -40,75 +42,44 @@ const Videocall = (props: { slug: string; JWT: string }) => {
       if (!videoContainer && event.action === "Start") {
         const videosContainer = containerRef.current.querySelector('#videos-container');
         if (videosContainer) {
-          // Create draggable wrapper
+          // Create video container using DraggableResizable
+          const videoContainer = document.createElement('div');
+          videoContainer.id = `video-${event.userId}`;
+          videoContainer.style.width = '100%';
+          videoContainer.style.height = '100%';
+          videoContainer.style.position = 'relative';
+          videoContainer.style.overflow = 'hidden';
+          videoContainer.style.borderRadius = '16px';
+          videoContainer.style.backgroundColor = '#1E293B';
+          videoContainer.style.border = '1px solid #334155';
+          videoContainer.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
+          
+          // Create DraggableResizable wrapper
           const draggableWrapper = document.createElement('div');
           draggableWrapper.className = 'draggable-video';
           draggableWrapper.style.position = 'absolute';
-          draggableWrapper.style.width = '320px';
-          draggableWrapper.style.height = '240px';
-          draggableWrapper.style.cursor = 'move';
-          draggableWrapper.style.border = '6px solid transparent';
-          draggableWrapper.style.boxSizing = 'border-box';
-          
-          // Add resize zones
-          const edges = [
-            { class: 'resize-right', style: 'right: -3px; top: 0; width: 6px; height: 100%; cursor: e-resize;' },
-            { class: 'resize-bottom', style: 'bottom: -3px; left: 0; width: 100%; height: 6px; cursor: s-resize;' },
-            { class: 'resize-corner', style: 'right: -3px; bottom: -3px; width: 20px; height: 20px; cursor: se-resize; background: rgba(255,255,255,0.2); border-radius: 0 0 4px 0;' }
-          ];
-          
-          edges.forEach(edge => {
-            const resizeZone = document.createElement('div');
-            resizeZone.className = edge.class;
-            resizeZone.style.cssText = `position: absolute; ${edge.style}`;
-            
-            let isResizing = false;
-            let startX = 0;
-            let startY = 0;
-            let startWidth = 0;
-            let startHeight = 0;
-            
-            resizeZone.addEventListener('mousedown', (e) => {
-              e.stopPropagation();
-              isResizing = true;
-              startX = e.clientX;
-              startY = e.clientY;
-              startWidth = draggableWrapper.offsetWidth;
-              startHeight = draggableWrapper.offsetHeight;
-              draggableWrapper.style.userSelect = 'none';
-            });
-            
-            document.addEventListener('mousemove', (e) => {
-              if (!isResizing) return;
-              e.preventDefault();
-              
-              const dx = e.clientX - startX;
-              const dy = e.clientY - startY;
-              
-              if (edge.class.includes('right')) {
-                draggableWrapper.style.width = `${Math.max(200, startWidth + dx)}px`;
-              }
-              if (edge.class.includes('bottom')) {
-                draggableWrapper.style.height = `${Math.max(150, startHeight + dy)}px`;
-              }
-            });
-            
-            document.addEventListener('mouseup', () => {
-              isResizing = false;
-              draggableWrapper.style.userSelect = 'auto';
-            });
-            
-            draggableWrapper.appendChild(resizeZone);
-          });
-          draggableWrapper.style.resize = 'both';
-          draggableWrapper.style.overflow = 'hidden';
           
           // Random initial position
           const containerRect = videosContainer.getBoundingClientRect();
           const maxX = containerRect.width - 320;
           const maxY = containerRect.height - 240;
-          draggableWrapper.style.left = `${Math.random() * maxX}px`;
-          draggableWrapper.style.top = `${Math.random() * maxY}px`;
+          const x = Math.random() * maxX;
+          const y = Math.random() * maxY;
+          
+          // Create React root for DraggableResizable
+          const root = ReactDOM.createRoot(draggableWrapper);
+          root.render(
+            React.createElement(DraggableResizable, {
+              initialWidth: 320,
+              initialHeight: 240,
+              defaultPosition: { x, y },
+              minWidth: 200,
+              minHeight: 150,
+              maxWidth: containerRect.width,
+              maxHeight: containerRect.height,
+              className: 'video-wrapper'
+            }, videoContainer)
+          );
           
           // Create video container
           videoContainer = document.createElement('div');
@@ -487,80 +458,46 @@ const Videocall = (props: { slug: string; JWT: string }) => {
         const draggableWrapper = document.createElement('div');
         draggableWrapper.className = 'draggable-share';
         draggableWrapper.style.position = 'absolute';
-        draggableWrapper.style.cursor = 'move';
         draggableWrapper.style.zIndex = '50';
-        draggableWrapper.style.width = '640px';
-        draggableWrapper.style.height = '480px';
-        draggableWrapper.style.border = '6px solid transparent';
-        draggableWrapper.style.boxSizing = 'border-box';
         
-        // Add resize zones
-        const edges = [
-          { class: 'resize-right', style: 'right: -3px; top: 0; width: 6px; height: 100%; cursor: e-resize;' },
-          { class: 'resize-bottom', style: 'bottom: -3px; left: 0; width: 100%; height: 6px; cursor: s-resize;' },
-          { class: 'resize-corner', style: 'right: -3px; bottom: -3px; width: 20px; height: 20px; cursor: se-resize; background: rgba(255,255,255,0.2); border-radius: 0 0 4px 0;' }
-        ];
+        // Create video container
+        const videoContainer = document.createElement('div');
+        videoContainer.id = `share-${userId}`;
+        videoContainer.style.width = '100%';
+        videoContainer.style.height = '100%';
+        videoContainer.style.position = 'relative';
+        videoContainer.style.overflow = 'hidden';
+        videoContainer.style.borderRadius = '16px';
+        videoContainer.style.backgroundColor = '#1E293B';
+        videoContainer.style.border = '1px solid #334155';
+        videoContainer.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
         
-        edges.forEach(edge => {
-          const resizeZone = document.createElement('div');
-          resizeZone.className = edge.class;
-          resizeZone.style.cssText = `position: absolute; ${edge.style}`;
-          
-          let isResizing = false;
-          let startX = 0;
-          let startY = 0;
-          let startWidth = 0;
-          let startHeight = 0;
-          
-          resizeZone.addEventListener('mousedown', (e) => {
-            e.stopPropagation();
-            isResizing = true;
-            startX = e.clientX;
-            startY = e.clientY;
-            startWidth = draggableWrapper.offsetWidth;
-            startHeight = draggableWrapper.offsetHeight;
-            draggableWrapper.style.userSelect = 'none';
-          });
-          
-          document.addEventListener('mousemove', (e) => {
-            if (!isResizing) return;
-            e.preventDefault();
-            
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
-            
-            if (edge.class.includes('right')) {
-              draggableWrapper.style.width = `${Math.max(320, startWidth + dx)}px`;
-            }
-            if (edge.class.includes('bottom')) {
-              draggableWrapper.style.height = `${Math.max(240, startHeight + dy)}px`;
-            }
-          });
-          
-          document.addEventListener('mouseup', () => {
-            isResizing = false;
-            draggableWrapper.style.userSelect = 'auto';
-          });
-          
-          draggableWrapper.appendChild(resizeZone);
-        });
-        draggableWrapper.style.resize = 'both';
-        draggableWrapper.style.overflow = 'hidden';
-ition
-           // Add resize handle
-        const resizeHandle = document.createElement('div');
-        resizeHandle.style.position = 'absolute';
-        resizeHandle.style.right = '2px';
-        resizeHandle.style.bottom = '2px';
-        resizeHandle.style.width = '10px';
-        resizeHandle.style.height = '10px';
-        resizeHandle.style.cursor = 'se-resize';
-        resizeHandle.style.backgroundColor = 'rgba(255, 255, 255, 0.5)';
-        resizeHandle.style.borderRadius = '0 0 2px 0';
-        resizeHandle.style.pointerEvents = 'none';
+        // Random initial position
+        const containerRect = sharesContainer.getBoundingClientRect();
+        const maxX = containerRect.width - 640;
+        const maxY = containerRect.height - 480;
+        const x = Math.random() * maxX;
+        const y = Math.random() * maxY;
         
-        draggableWrapper.appendChild(resizeHandle);
-    const containerRect = sharesContainer.getBoundingClientRect();
+        // Create React root for DraggableResizable
+        const root = ReactDOM.createRoot(draggableWrapper);
+        root.render(
+          React.createElement(DraggableResizable, {
+            initialWidth: 640,
+            initialHeight: 480,
+            defaultPosition: { x, y },
+            minWidth: 320,
+            minHeight: 240,
+            maxWidth: containerRect.width,
+            maxHeight: containerRect.height,
+            className: 'share-wrapper'
+          }, videoContainer)
+        );
+        
+
+
+        // Random initial position
+        const containerRect = sharesContainer.getBoundingClientRect();
         const maxX = containerRect.width - 640;
         const maxY = containerRect.height - 480;
         draggableWrapper.style.left = `${Math.random() * maxX}px`;
